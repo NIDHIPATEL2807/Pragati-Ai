@@ -1,52 +1,93 @@
 import { NextResponse } from "next/server";
+import Parser from 'rss-parser';
+
+// Define the structure for our news items
+interface NewsItem {
+  title: string;
+  link: string;
+  summary: string;
+  published: string;
+  category: string;
+  date_collected: string;
+}
+
+// Create a parser instance with custom fields
+const parser = new Parser({
+  customFields: {
+    item: [
+      ['description', 'summary'],
+      ['category', 'category']
+    ]
+  }
+});
+
+/**
+ * Fetches and parses the Phys.org RSS feed
+ */
+async function getPhysOrgLatestNews(): Promise<NewsItem[]> {
+  try {
+    // Use Phys.org's RSS feed
+    const feed_url = "https://phys.org/rss-feed/";
+    
+    // Parse the feed
+    const feed = await parser.parseURL(feed_url);
+    
+    // Create a list to store news data
+    const latestNews: NewsItem[] = [];
+    
+    // Process each entry in the feed
+    for (const entry of feed.items) {
+      // Extract category if available or default to "Uncategorized"
+      const category = entry.category || "Uncategorized";
+      
+      // Format the published date
+      let formattedDate = entry.pubDate || new Date().toISOString();
+      try {
+        if (entry.pubDate) {
+          const pubDate = new Date(entry.pubDate);
+          formattedDate = pubDate.toLocaleDateString('en-US', {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+        }
+      } catch (e) {
+        console.error(`Date parsing error: ${e}`);
+      }
+      
+      // Add the entry to our news list
+      latestNews.push({
+        title: entry.title || "Untitled",
+        link: entry.link || "#",
+        summary: entry.summary || "",
+        published: formattedDate,
+        category: category,
+        date_collected: new Date().toISOString()
+      });
+    }
+    
+    return latestNews;
+  } catch (error) {
+    console.error("Error fetching RSS feed:", error);
+    throw error;
+  }
+}
 
 export async function GET() {
   try {
-    // Get the backend URL from environment variables or use default localhost
-    const backendUrl =  "http://localhost:6000/api/news";
+    // Get latest news from Phys.org RSS feed
+    const latestNews = await getPhysOrgLatestNews();
     
-    console.log("Fetching from backend URL:", backendUrl);
-    
-    // Fetch news data from the Flask backend
-    const response = await fetch(backendUrl, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      // Use cache: 'no-store' to always fetch fresh data
-      cache: "no-store",
-      // Add next.js specific options
-      next: { revalidate: 60 }, // Revalidate at most once every minute
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Backend error (${response.status}): ${errorText}`);
-      return NextResponse.json(
-        { error: `Backend error: ${response.statusText}` },
-        { status: response.status }
-      );
-    }
-    
-    // Get the response from the backend
-    const data = await response.json();
-    
-    // Return the news data to the client
-    return NextResponse.json(data);
+    // Return the news data
+    return NextResponse.json(latestNews);
   } catch (error) {
     console.error("Error in research-news API route:", error);
     
-    // If the error is due to the Flask API not running
-    if (error instanceof Error && error.message.includes("ECONNREFUSED")) {
-      return NextResponse.json(
-        { error: "Cannot connect to news server. Please make sure the Flask backend is running." },
-        { status: 503 }
-      );
-    }
-    
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Failed to fetch research news from Phys.org" },
       { status: 500 }
     );
   }
-}   
+}

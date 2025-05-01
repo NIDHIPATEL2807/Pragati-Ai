@@ -35,26 +35,29 @@ export default function ResearchNews() {
     try {
       setIsLoadingNews(true)
       setError(null)
-
-      // Log that we're starting the fetch
-      console.log("Fetching news data from /api/research-news")
       
-      const response = await fetch("/api/research-news")
-
+      console.log("Fetching news data from API route")
+      
+      // Fetch news data from our Next.js API route
+      const response = await fetch("/api/research-news", {
+        cache: "no-store", // Don't cache the response
+        next: { revalidate: 60 } // Revalidate the data at most once per minute
+      })
+      
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const errorMessage = errorData.error || response.statusText;
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.error || response.statusText
         throw new Error(`Failed to fetch news: ${errorMessage}`)
       }
-
+      
       const data: NewsItem[] = await response.json()
       console.log("Received news data:", data.length, "items")
-
-      // For debugging empty data
+      
+      // Handle empty data
       if (data.length === 0) {
         console.warn("Received empty news data array")
       }
-
+      
       // Extract unique categories
       const uniqueCategories = Array.from(new Set(data.map((item) => item.category)))
 
@@ -80,32 +83,6 @@ export default function ResearchNews() {
       ? newsItems
       : newsItems.filter((item) => item.category.toLowerCase() === newsCategory.toLowerCase())
 
-  // Use mock data if no data is available (for development)
-  const useMockData = process.env.NODE_ENV === 'development' && newsItems.length === 0 && !isLoadingNews && !error;
-  
-  // Mock data for development when API is unavailable
-  const mockNews = useMockData ? [
-    {
-      title: "Mock News Item: Researchers discover new quantum computing technique",
-      link: "#",
-      summary: "This is a mock news item for development purposes. In a real environment, this would contain an actual summary of the research news.",
-      published: "April 30, 2025",
-      category: "Physics",
-      date_collected: new Date().toISOString()
-    },
-    {
-      title: "Mock News Item: New species of deep-sea creatures discovered",
-      link: "#",
-      summary: "This is another mock news item. Actual content would be fetched from the Phys.org RSS feed via the Flask backend.",
-      published: "April 29, 2025",
-      category: "Biology",
-      date_collected: new Date().toISOString()
-    }
-  ] : [];
-
-  // Use mock news if needed
-  const displayNews = useMockData ? mockNews : filteredNews;
-
   return (
     <Card className="overflow-hidden border-none shadow-xl backdrop-blur-md relative">
       <div className="absolute inset-0 bg-gradient-to-br from-amber-400/40 to-amber-600/40 dark:from-amber-500/30 dark:to-amber-700/30 rounded-xl" />
@@ -116,8 +93,7 @@ export default function ResearchNews() {
           <div>
             <CardTitle className="text-2xl">Research News</CardTitle>
             <CardDescription className="text-amber-100 dark:text-amber-200">
-              Latest scientific research and discoveries from Phys.org
-              {useMockData && " (Mock Data)"}
+              Latest scientific research and discoveries
             </CardDescription>
           </div>
           <Button
@@ -162,30 +138,6 @@ export default function ResearchNews() {
               {category}
             </Badge>
           ))}
-          
-          {/* Mock categories for development */}
-          {useMockData && (
-            <>
-              <Badge
-                className={cn(
-                  "cursor-pointer hover:bg-white/30 transition-colors",
-                  newsCategory === "physics" ? "bg-white/80 text-amber-700" : "bg-white/20 text-white",
-                )}
-                onClick={() => setNewsCategory("physics")}
-              >
-                Physics
-              </Badge>
-              <Badge
-                className={cn(
-                  "cursor-pointer hover:bg-white/30 transition-colors",
-                  newsCategory === "biology" ? "bg-white/80 text-amber-700" : "bg-white/20 text-white",
-                )}
-                onClick={() => setNewsCategory("biology")}
-              >
-                Biology
-              </Badge>
-            </>
-          )}
         </div>
       </CardHeader>
 
@@ -205,17 +157,13 @@ export default function ResearchNews() {
                   Try Again
                 </Button>
               </p>
-              <p className="mt-4 text-sm">
-                Note: Make sure the Flask backend is running on port 6000. 
-                Check the README.md for setup instructions.
-              </p>
             </div>
           </div>
         ) : (
           <ScrollArea className="h-[500px] pr-4">
             <div className="space-y-6">
-              {displayNews.length > 0 ? (
-                displayNews.map((item, index) => (
+              {filteredNews.length > 0 ? (
+                filteredNews.map((item, index) => (
                   <motion.div
                     key={`${item.title}-${index}`}
                     initial={{ opacity: 0, y: 20 }}
@@ -238,12 +186,8 @@ export default function ResearchNews() {
                       </div>
 
                       <div className="text-gray-600 dark:text-gray-300 mb-4">
-                        {/* Remove HTML tags from summary */}
-                        <div
-                          dangerouslySetInnerHTML={{
-                            __html: item.summary.replace(/<[^>]*>?/gm, ""),
-                          }}
-                        />
+                        {/* Properly render HTML content from RSS feed */}
+                        <div dangerouslySetInnerHTML={{ __html: item.summary }} />
                       </div>
 
                       <Button variant="outline" size="sm" className="flex items-center gap-1" asChild>
