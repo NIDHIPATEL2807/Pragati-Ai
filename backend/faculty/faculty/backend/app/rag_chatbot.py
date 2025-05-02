@@ -282,7 +282,7 @@ async def chat_with_documents(message: str, conversation_history: List[ChatMessa
         
         Question: {message}
         
-        Think through your response step by step, sharing your reasoning process naturally.
+        Think through your response step by step
         """
         
         # Prepare conversation history for the API

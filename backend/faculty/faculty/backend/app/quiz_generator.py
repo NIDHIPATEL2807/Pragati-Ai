@@ -12,7 +12,7 @@ load_dotenv()
 
 # Groq setup
 from groq import Groq
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+groq_client = Groq(api_key="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")
 
 class QuizQuestion(BaseModel):
     question: str

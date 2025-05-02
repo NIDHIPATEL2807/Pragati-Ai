@@ -61,6 +61,16 @@ async def startup_event():
     # Create SQL tables
     Base.metadata.create_all(bind=engine)
 
+    # Delete all documents and related chunks at startup
+    db = SessionLocal()
+    try:
+        db.query(DocumentChunk).delete()
+        db.query(Document).delete()
+        db.commit()
+        print("All documents and chunks deleted at startup.")
+    finally:
+        db.close()
+    
 # Document upload endpoint
 @app.post("/upload-document")
 async def upload_document(

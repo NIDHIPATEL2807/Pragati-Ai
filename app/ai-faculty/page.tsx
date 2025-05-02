@@ -1,7 +1,6 @@
 "use client"
 
-import type React from "react"
-
+import  React from "react"
 import { useState, useRef, useEffect } from "react"
 import { motion } from "framer-motion"
 import { Upload, Send, ArrowLeft, ArrowRight, FileText, Check, Trash2, BookOpen, Lock } from "lucide-react"
@@ -38,6 +37,8 @@ interface UploadedDocument {
   uploadedAt: Date
 }
 
+const BACKEND_URL = "http://localhost:8000"
+
 export default function AIFacultyPage() {
   const { mousePosition } = useMouse()
   const [scrollY, setScrollY] = useState(0)
@@ -59,45 +60,17 @@ export default function AIFacultyPage() {
   ])
   const [inputMessage, setInputMessage] = useState("")
   const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false)
+  const [questions, setQuestions] = useState<Question[]>([])
+  const [quizData, setQuizData] = useState<any[]>([])
+  const [quizScore, setQuizScore] = useState<number>(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const chatInputRef = useRef<HTMLInputElement>(null)
-
-  // Sample questions - in a real app, these would be generated from the uploaded document
-  const questions: Question[] = [
-    {
-      id: 1,
-      text: "What is the main purpose of the AI Faculty feature?",
-      options: [
-        "To provide entertainment content",
-        "To generate quizzes from documents and offer assistance",
-        "To create presentations automatically",
-      ],
-      correctAnswer: 1,
-    },
-    {
-      id: 2,
-      text: "How does the AI Faculty chatbot help users?",
-      options: [
-        "By explaining doubts related to documents and quizzes",
-        "By providing weather forecasts",
-        "By scheduling appointments",
-      ],
-      correctAnswer: 0,
-    },
-    {
-      id: 3,
-      text: "What type of files can be uploaded to the AI Faculty?",
-      options: ["Only images", "Only videos", "Documents like PDFs and text files"],
-      correctAnswer: 2,
-    },
-  ]
 
   useEffect(() => {
     const handleScroll = () => {
       setScrollY(window.scrollY)
     }
-
     window.addEventListener("scroll", handleScroll)
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
@@ -105,6 +78,11 @@ export default function AIFacultyPage() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  useEffect(() => {
+    // Fetch uploaded documents from backend on mount
+    fetchDocuments()
+  }, [])
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -116,49 +94,59 @@ export default function AIFacultyPage() {
     else return (bytes / 1048576).toFixed(1) + " MB"
   }
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (files && files.length > 0) {
-      setIsUploading(true)
-
-      // Simulate upload process
-      setTimeout(() => {
-        const newDocuments: UploadedDocument[] = Array.from(files).map((file) => ({
-          id: Math.random().toString(36).substring(2, 9),
-          name: file.name,
-          size: formatFileSize(file.size),
-          type: file.type,
+  const fetchDocuments = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/documents`)
+      if (!res.ok) throw new Error("Failed to fetch documents")
+      const docs = await res.json()
+      setUploadedDocuments(
+        docs.map((doc: any) => ({
+          id: doc.id.toString(),
+          name: doc.title,
+          size: "Unknown",
+          type: "",
           uploadedAt: new Date(),
         }))
-
-        setUploadedDocuments((prev) => [...prev, ...newDocuments])
-        setIsUploading(false)
-
-        // Add a message from the bot about the successful upload
-        if (uploadedDocuments.length === 0 && newDocuments.length > 0) {
-          handleBotResponse(
-            `I've processed your ${newDocuments.length > 1 ? "documents" : "document"}. You can now generate a quiz or ask me questions about the content!`,
-          )
-        } else {
-          handleBotResponse(
-            `I've added ${newDocuments.length} more ${
-              newDocuments.length > 1 ? "documents" : "document"
-            } to your collection.`,
-          )
-        }
-
-        // Reset the file input
-        if (fileInputRef.current) {
-          fileInputRef.current.value = ""
-        }
-      }, 2000)
+      )
+    } catch (err) {
+      handleBotResponse("Could not fetch uploaded documents from server.")
     }
   }
 
-  const handleDeleteDocument = (id: string) => {
-    setUploadedDocuments((prev) => prev.filter((doc) => doc.id !== id))
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files && files.length > 0) {
+      setIsUploading(true)
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i]
+          const formData = new FormData()
+          formData.append("file", file)
+          formData.append("title", file.name)
+          const res = await fetch(`${BACKEND_URL}/upload-document`, {
+            method: "POST",
+            body: formData,
+          })
+          if (!res.ok) {
+            const data = await res.json()
+            throw new Error(data.detail || "Upload failed")
+          }
+        }
+        await fetchDocuments()
+        handleBotResponse(
+          've processed your ${files.length > 1 ? "documents" : "document"}. You can now generate a quiz or ask me questions about the content!'
+        )
+      } catch (err: any) {
+        handleBotResponse("Failed to upload document(s): " + (err?.message || "Unknown error"))
+      }
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
 
-    // If all documents are deleted, reset quiz and add a message
+  const handleDeleteDocument = async (id: string) => {
+    // Optional: implement a backend endpoint to delete documents and call it here.
+    setUploadedDocuments((prev) => prev.filter((doc) => doc.id !== id))
     if (uploadedDocuments.length === 1) {
       setQuizGenerated(false)
       setQuizSubmitted(false)
@@ -170,28 +158,54 @@ export default function AIFacultyPage() {
     fileInputRef.current?.click()
   }
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (inputMessage.trim()) {
-      // Check if documents are uploaded
       if (uploadedDocuments.length === 0) {
         handleBotResponse("Please upload at least one document first before we can chat about it.")
         setInputMessage("")
         return
       }
-
       const newMessage: Message = {
         id: Date.now().toString(),
         content: inputMessage,
         sender: "user",
       }
-
       setMessages((prev) => [...prev, newMessage])
       setInputMessage("")
-
-      // Simulate bot response
-      setTimeout(() => {
-        handleBotResponse(generateBotResponse(inputMessage))
-      }, 1000)
+      try {
+        // Check your backend API docs to make sure you're sending the data in the expected format
+        // You might need to adjust the structure of your request body
+        const res = await fetch(`${BACKEND_URL}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            // Possible fixes (try one at a time):
+            
+            // Option 1: Send only the message and document IDs
+            message: inputMessage,
+            doc_ids: uploadedDocuments.map(doc => doc.id),
+            
+            // Option 2: Include user's message and conversation history
+            // message: inputMessage,
+            // conversation_history: messages.map((m) => ({
+            //   role: m.sender === "user" ? "user" : "assistant", // Some APIs use role instead of sender
+            //   content: m.content,
+            // })),
+            
+            // Option 3: If you need to specify a specific document to chat about
+            // message: inputMessage,
+            // doc_id: uploadedDocuments[0].id, // Use the first document or let user select
+          }),
+        })
+        if (!res.ok) {
+          const data = await res.json()
+          throw new Error(data.detail || "Chat error")
+        }
+        const data = await res.json()
+        handleBotResponse(data.response)
+      } catch (err: any) {
+        handleBotResponse("Chat error: " + (err?.message || "Unknown error"))
+      }
     }
   }
 
@@ -201,71 +215,85 @@ export default function AIFacultyPage() {
       content,
       sender: "bot",
     }
-
     setMessages((prev) => [...prev, botMessage])
   }
 
-  const generateBotResponse = (userMessage: string) => {
-    // Simple response logic - in a real app, this would use an AI model
-    const userMessageLower = userMessage.toLowerCase()
-
-    if (userMessageLower.includes("quiz") || userMessageLower.includes("test")) {
-      return "The quiz consists of multiple-choice questions based on your uploaded documents. Click the 'Generate Quiz' button to create a quiz based on your documents."
-    } else if (userMessageLower.includes("document") || userMessageLower.includes("upload")) {
-      return "You can upload PDF, DOCX, or TXT files. I'll analyze the content and generate relevant quiz questions when you're ready."
-    } else if (userMessageLower.includes("hello") || userMessageLower.includes("hi")) {
-      return "Hello there! How can I assist you today with your learning journey?"
-    } else {
-      return "I'm here to help with your document and quiz questions. Could you please be more specific about what you'd like to know?"
-    }
-  }
-
-  const handleGenerateQuiz = () => {
-    // Check if documents are uploaded
+  const handleGenerateQuiz = async () => {
     if (uploadedDocuments.length === 0) {
       handleBotResponse("Please upload at least one document first before generating a quiz.")
       return
     }
-
     setIsGeneratingQuiz(true)
-
-    // Reset quiz state
     setCurrentQuestion(0)
     setSelectedOption(null)
     setUserAnswers([])
     setQuizSubmitted(false)
-
-    // Simulate quiz generation
-    setTimeout(() => {
-      setIsGeneratingQuiz(false)
+    try {
+      const res = await fetch(`${BACKEND_URL}/generate-quiz`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ doc_id: Number(uploadedDocuments[0].id) }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.detail || "Quiz generation failed")
+      }
+      const data = await res.json()
+      setQuizData(data.quiz)
+      setQuestions(
+        data.quiz.map((q: any, idx: number) => ({
+          id: idx + 1,
+          text: q.question,
+          options: q.options,
+          correctAnswer: q.correct_index,
+        }))
+      )
       setQuizGenerated(true)
       setQuizActive(true)
       handleBotResponse("I've generated a quiz based on your documents. Good luck!")
-    }, 3000)
+    } catch (err: any) {
+      handleBotResponse("Failed to generate quiz: " + (err?.message || "Unknown error"))
+    }
+    setIsGeneratingQuiz(false)
   }
 
-  const handleNextQuestion = () => {
+  const handleNextQuestion = async () => {
     if (selectedOption !== null) {
-      // Save the answer
       const newAnswers = [...userAnswers]
       newAnswers[currentQuestion] = selectedOption
       setUserAnswers(newAnswers)
-
-      // Move to next question or submit
       if (currentQuestion < questions.length - 1) {
         setCurrentQuestion(currentQuestion + 1)
         setSelectedOption(null)
       } else {
         setQuizSubmitted(true)
         setQuizActive(false)
-
-        // Calculate score
-        const correctAnswers = newAnswers.filter((answer, index) => answer === questions[index].correctAnswer).length
-
-        // Add a message about the quiz result
-        handleBotResponse(
-          `You've completed the quiz! Your score: ${correctAnswers}/${questions.length}. Would you like me to explain any of the questions?`,
-        )
+        // Evaluate quiz via backend
+        try {
+          const answers: Record<number, number> = {}
+          newAnswers.forEach((ans, idx) => {
+            if (ans !== null) answers[idx] = ans
+          })
+          const res = await fetch(`${BACKEND_URL}/evaluate-quiz`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              quiz: quizData,
+              answers,
+            }),
+          })
+          if (!res.ok) {
+            const data = await res.json()
+            throw new Error(data.detail || "Quiz evaluation failed")
+          }
+          const data = await res.json()
+          setQuizScore(data.score)
+          handleBotResponse(
+            `You've completed the quiz! Your score: ${data.score}/${data.total}. Would you like me to explain any of the questions?`
+          )
+        } catch (err: any) {
+          handleBotResponse("Failed to evaluate quiz: " + (err?.message || "Unknown error"))
+        }
       }
     }
   }
@@ -289,6 +317,9 @@ export default function AIFacultyPage() {
     setQuizGenerated(false)
     setQuizSubmitted(false)
     setQuizActive(false)
+    setQuestions([])
+    setQuizData([])
+    setQuizScore(0)
   }
 
   return (
@@ -322,7 +353,6 @@ export default function AIFacultyPage() {
               className="lg:col-span-2"
             >
               <Card className="overflow-hidden border-none shadow-xl bg-gradient-to-br from-purple-400/90 to-purple-600/90 dark:from-purple-700/90 dark:to-purple-900/90 backdrop-blur-sm relative">
-                {/* Feathery border effect */}
                 <div className="absolute inset-0 rounded-xl border-4 border-white/20 pointer-events-none"></div>
                 <div className="absolute inset-0 rounded-xl border border-white/40 pointer-events-none"></div>
 
@@ -364,12 +394,9 @@ export default function AIFacultyPage() {
                         </div>
                         <h2 className="text-2xl font-bold text-white mb-2">Quiz Completed!</h2>
                         <p className="text-purple-100 mb-6">
-                          You scored{" "}
-                          {userAnswers.filter((answer, index) => answer === questions[index].correctAnswer).length}/
-                          {questions.length}
+                          You scored {quizScore}/{questions.length}
                         </p>
                       </div>
-
                       <div className="space-y-4">
                         {questions.map((question, index) => (
                           <div key={question.id} className="bg-white/10 rounded-lg p-4 text-white">
@@ -392,7 +419,6 @@ export default function AIFacultyPage() {
                           </div>
                         ))}
                       </div>
-
                       <div className="flex justify-center mt-6 space-x-4">
                         <Button onClick={resetQuiz} className="bg-white text-purple-700 hover:bg-purple-50">
                           Retake Quiz
@@ -408,15 +434,14 @@ export default function AIFacultyPage() {
                         <h2 className="text-xl font-bold text-gray-800 mb-4">
                           Question {currentQuestion + 1} of {questions.length}
                         </h2>
-                        <p className="text-gray-700 text-lg">{questions[currentQuestion].text}</p>
+                        <p className="text-gray-700 text-lg">{questions[currentQuestion]?.text}</p>
                       </div>
-
                       <RadioGroup
                         value={selectedOption?.toString()}
                         onValueChange={(value) => setSelectedOption(Number.parseInt(value))}
                         className="space-y-4"
                       >
-                        {questions[currentQuestion].options.map((option, index) => (
+                        {questions[currentQuestion]?.options.map((option, index) => (
                           <div
                             key={index}
                             className={cn(
@@ -428,12 +453,13 @@ export default function AIFacultyPage() {
                             onClick={() => setSelectedOption(index)}
                           >
                             <RadioGroupItem
-                              value={index.toString()}
-                              id={`option-${index}`}
-                              className={selectedOption === index ? "text-white" : "text-purple-600"}
-                            />
+                             value={index.toString()}
+                            id={`option-${index}`}
+                            className={selectedOption === index ? "text-white" : "text-purple-600"}
+/>
+
                             <Label
-                              htmlFor={`option-${index}`}
+                              htmlFor={'option-${index}'}
                               className={cn(
                                 "ml-3 font-medium cursor-pointer flex-grow",
                                 selectedOption === index ? "text-white" : "text-gray-700",
@@ -444,7 +470,6 @@ export default function AIFacultyPage() {
                           </div>
                         ))}
                       </RadioGroup>
-
                       <div className="flex justify-between pt-4">
                         <Button
                           onClick={handlePreviousQuestion}
@@ -454,7 +479,6 @@ export default function AIFacultyPage() {
                           <ArrowLeft className="mr-2 h-4 w-4" />
                           Previous
                         </Button>
-
                         <Button
                           onClick={handleNextQuestion}
                           disabled={selectedOption === null}
@@ -491,10 +515,8 @@ export default function AIFacultyPage() {
                   </div>
                 )}
                 <Card className="overflow-hidden border-none shadow-xl bg-gradient-to-br from-blue-400/90 to-blue-600/90 dark:from-blue-600/90 dark:to-blue-800/90 backdrop-blur-sm relative">
-                  {/* Feathery border effect */}
                   <div className="absolute inset-0 rounded-xl border-4 border-white/20 pointer-events-none"></div>
                   <div className="absolute inset-0 rounded-xl border border-white/40 pointer-events-none"></div>
-
                   <CardContent className="p-6">
                     <div className="text-center mb-4">
                       <input
@@ -506,7 +528,6 @@ export default function AIFacultyPage() {
                         multiple
                         disabled={quizActive}
                       />
-
                       <div
                         onClick={quizActive ? undefined : triggerFileInput}
                         className={cn(
@@ -532,7 +553,6 @@ export default function AIFacultyPage() {
                         )}
                       </div>
                     </div>
-
                     {/* Document List */}
                     {uploadedDocuments.length > 0 && (
                       <div className="mt-4">
@@ -577,10 +597,8 @@ export default function AIFacultyPage() {
                   </div>
                 )}
                 <Card className="overflow-hidden border-none shadow-xl bg-gradient-to-br from-amber-400/90 to-amber-600/90 dark:from-amber-500/90 dark:to-amber-700/90 backdrop-blur-sm relative">
-                  {/* Feathery border effect */}
                   <div className="absolute inset-0 rounded-xl border-4 border-white/20 pointer-events-none"></div>
                   <div className="absolute inset-0 rounded-xl border border-white/40 pointer-events-none"></div>
-
                   <CardContent className="p-0">
                     <div className="flex flex-col h-[400px]">
                       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -601,7 +619,6 @@ export default function AIFacultyPage() {
                         ))}
                         <div ref={messagesEndRef} />
                       </div>
-
                       <div className="p-4 border-t border-amber-500/30">
                         <div className="flex space-x-2">
                           <Input
@@ -635,7 +652,6 @@ export default function AIFacultyPage() {
           </div>
         </div>
       </main>
-
       <Footer />
     </div>
   )
