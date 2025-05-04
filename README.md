@@ -1,4 +1,13 @@
+# ShikshaShakti
 
+<div align="center">
+  
+![image](https://github.com/user-attachments/assets/b0babc5b-6111-4333-af68-60f2072ab5f6)
+
+
+**Personalized Skilling Platform for Everyone**
+
+</div>
 
 ## 🌟 About ShikshaShakti
 
