@@ -115,8 +115,7 @@ ShikshaShakti/
 # Clone the repository
 git clone https://github.com/yourusername/Pragati-Ai-nidhi.git
 
-# Navigate to the project directory
-cd Pragati-Ai-nidhi
+
 
 # Frontend Setup
 cd frontend
